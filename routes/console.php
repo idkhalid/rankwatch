@@ -13,6 +13,11 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::call(function () {
-    Project::query()->each(fn (Project $project) => CrawlProjectJob::dispatchIfAvailable($project));
-    Keyword::query()->each(fn (Keyword $keyword) => CheckKeywordRankingsJob::dispatch($keyword));
-})->dailyAt('02:00');
+    Project::query()->chunkById(100, fn ($projects) => $projects->each(
+        fn (Project $project) => CrawlProjectJob::dispatchIfAvailable($project)
+    ));
+
+    Keyword::query()->chunkById(100, fn ($keywords) => $keywords->each(
+        fn (Keyword $keyword) => CheckKeywordRankingsJob::dispatchIfAvailable($keyword)
+    ));
+})->name('rankwatch-daily-monitoring')->dailyAt('02:00')->withoutOverlapping();

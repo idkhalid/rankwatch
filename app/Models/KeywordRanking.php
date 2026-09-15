@@ -9,9 +9,13 @@ class KeywordRanking extends Model
 {
     use HasFactory;
 
+    public const STATUS_FOUND = 'found';
+
+    public const STATUS_NOT_FOUND = 'not_found';
+
     public $timestamps = false;
 
-    protected $fillable = ['position', 'checked_at'];
+    protected $fillable = ['position', 'status', 'checked_at'];
 
     protected function casts(): array
     {
@@ -21,5 +25,15 @@ class KeywordRanking extends Model
     public function keyword()
     {
         return $this->belongsTo(Keyword::class);
+    }
+
+    public function scopeSuccessful($query)
+    {
+        return $query->whereIn('status', [self::STATUS_FOUND, self::STATUS_NOT_FOUND]);
+    }
+
+    public function getPositionLabelAttribute(): string
+    {
+        return $this->status === self::STATUS_NOT_FOUND ? 'Not found' : (string) $this->position;
     }
 }

@@ -19,7 +19,7 @@
             <thead class="text-slate-500"><tr><th class="py-2">Keyword</th><th>Current</th><th>Change</th></tr></thead>
             <tbody class="divide-y divide-slate-200">
             @foreach ($project->keywords as $keyword)
-                <tr><td class="py-2">{{ $keyword->keyword }}</td><td>{{ $keyword->current_position ?? '-' }}</td><td>{{ $keyword->position_change ?? '-' }}</td></tr>
+                <tr><td class="py-2">{{ $keyword->keyword }}</td><td>{{ $keyword->current_position_label }}</td><td>{{ $keyword->position_change ?? '-' }}</td></tr>
             @endforeach
             </tbody>
         </table>

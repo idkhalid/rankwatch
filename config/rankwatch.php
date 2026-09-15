@@ -3,6 +3,8 @@
 return [
     'ranking_api_url' => env('RANKING_API_URL'),
     'ranking_api_key' => env('RANKING_API_KEY'),
+    'ranking_provider_timeout' => 15,
+    'ranking_max_position' => 100,
     'crawl_limit' => env('RANKWATCH_CRAWL_LIMIT', 8),
     'crawl' => [
         'max_pages' => env('RANKWATCH_CRAWL_LIMIT', 8),
@@ -20,6 +22,12 @@ return [
             'http' => [80],
             'https' => [443],
         ],
+    ],
+    'ranking_job' => [
+        'lock_ttl' => 300,
+        'timeout' => 60,
+        'tries' => 2,
+        'backoff' => 60,
     ],
     'scoring' => [
         'critical' => 10,

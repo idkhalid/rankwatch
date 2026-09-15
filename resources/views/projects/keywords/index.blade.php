@@ -10,8 +10,8 @@
                 @forelse ($keywords as $keyword)
                     <tr>
                         <td class="py-3"><a href="{{ route('keywords.show', [$project, $keyword]) }}" class="font-medium hover:underline">{{ $keyword->keyword }}</a><p class="text-slate-500">{{ $keyword->country }} / {{ $keyword->device }}</p></td>
-                        <td>{{ $keyword->current_position ?? '-' }}</td>
-                        <td>{{ $keyword->previous_position ?? '-' }}</td>
+                        <td>{{ $keyword->current_position_label }}</td>
+                        <td>{{ $keyword->previous_position_label }}</td>
                         <td>{{ $keyword->best_position ?? '-' }}</td>
                         <td class="{{ ($keyword->position_change ?? 0) >= 0 ? 'text-emerald-700' : 'text-red-700' }}">{{ $keyword->position_change ?? '-' }}</td>
                         <td class="text-right"><a href="{{ route('keywords.edit', [$project, $keyword]) }}" class="text-slate-600 hover:text-slate-950">Edit</a></td>

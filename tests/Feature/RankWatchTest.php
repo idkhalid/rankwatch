@@ -3,12 +3,18 @@
 use App\Jobs\CheckKeywordRankingsJob;
 use App\Jobs\CrawlProjectJob;
 use App\Models\Crawl;
+use App\Models\Keyword;
+use App\Models\KeywordRanking;
 use App\Models\Project;
 use App\Models\User;
 use App\Services\CrawlUrlValidator;
+use App\Services\RankingChecker;
 use App\Services\SeoCrawler;
 use App\Services\SeoScoreCalculator;
+use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -47,6 +53,26 @@ function completedCrawl(Project $project, array $issues = [], $finishedAt = null
     $crawl->update(['issues_found' => $crawl->issues()->count()]);
 
     return $crawl->refresh();
+}
+
+function rankwatchScheduleEvent()
+{
+    return collect(app(Schedule::class)->events())
+        ->first(fn ($event) => $event->description === 'rankwatch-daily-monitoring');
+}
+
+function demoKeyword(): Keyword
+{
+    return User::factory()->create()
+        ->projects()
+        ->create(['name' => 'Acme Coffee', 'url' => 'https://acme.test'])
+        ->keywords()
+        ->create([
+            'keyword' => 'coffee beans',
+            'target_url' => 'https://acme.test/beans',
+            'country' => 'Indonesia',
+            'device' => 'desktop',
+        ]);
 }
 
 it('lets a verified user create a project', function () {
@@ -96,6 +122,155 @@ it('creates keywords and stores ranking history', function () {
     (new CheckKeywordRankingsJob($keyword))->handle(app(\App\Services\RankingChecker::class));
 
     expect($keyword->rankings()->count())->toBe(1);
+});
+
+it('stores a valid provider position as a found ranking', function () {
+    config(['rankwatch.ranking_api_url' => 'https://serp.test/check']);
+    Http::fake(['https://serp.test/check*' => Http::response(['position' => 12])]);
+
+    $keyword = demoKeyword();
+
+    (new CheckKeywordRankingsJob($keyword))->handle(app(RankingChecker::class));
+    $ranking = $keyword->rankings()->first();
+
+    expect($ranking->status)->toBe(KeywordRanking::STATUS_FOUND)
+        ->and($ranking->position)->toBe(12);
+});
+
+it('stores a successful not found result distinctly from provider failure', function () {
+    config(['rankwatch.ranking_api_url' => 'https://serp.test/check']);
+    Http::fake(['https://serp.test/check*' => Http::response(['found' => false, 'position' => null])]);
+
+    $keyword = demoKeyword();
+
+    (new CheckKeywordRankingsJob($keyword))->handle(app(RankingChecker::class));
+    $ranking = $keyword->rankings()->first();
+
+    expect($ranking->status)->toBe(KeywordRanking::STATUS_NOT_FOUND)
+        ->and($ranking->position)->toBeNull()
+        ->and($keyword->refresh()->current_position_label)->toBe('Not found');
+});
+
+it('does not create ranking history when the provider times out', function () {
+    config(['rankwatch.ranking_api_url' => 'https://serp.test/check']);
+    Http::fake(fn () => throw new ConnectionException('timeout'));
+
+    $keyword = demoKeyword();
+
+    expect(fn () => (new CheckKeywordRankingsJob($keyword))->handle(app(RankingChecker::class)))->toThrow(RuntimeException::class);
+    expect($keyword->rankings()->count())->toBe(0);
+});
+
+it('does not create fake ranking history for provider rate limits', function () {
+    config(['rankwatch.ranking_api_url' => 'https://serp.test/check']);
+    Http::fake(['https://serp.test/check*' => Http::response(['message' => 'too many'], 429)]);
+
+    $keyword = demoKeyword();
+
+    expect(fn () => (new CheckKeywordRankingsJob($keyword))->handle(app(RankingChecker::class)))->toThrow(RuntimeException::class);
+    expect($keyword->rankings()->count())->toBe(0);
+});
+
+it('does not create ranking history for provider server errors', function () {
+    config(['rankwatch.ranking_api_url' => 'https://serp.test/check']);
+    Http::fake(['https://serp.test/check*' => Http::response(['message' => 'bad'], 500)]);
+
+    $keyword = demoKeyword();
+
+    expect(fn () => (new CheckKeywordRankingsJob($keyword))->handle(app(RankingChecker::class)))->toThrow(RuntimeException::class);
+    expect($keyword->rankings()->count())->toBe(0);
+});
+
+it('does not create ranking history for invalid provider json', function () {
+    config(['rankwatch.ranking_api_url' => 'https://serp.test/check']);
+    Http::fake(['https://serp.test/check*' => Http::response('not json', 200, ['Content-Type' => 'application/json'])]);
+
+    $keyword = demoKeyword();
+
+    expect(fn () => (new CheckKeywordRankingsJob($keyword))->handle(app(RankingChecker::class)))->toThrow(RuntimeException::class);
+    expect($keyword->rankings()->count())->toBe(0);
+});
+
+it('rejects provider payloads missing the ranking position contract', function () {
+    config(['rankwatch.ranking_api_url' => 'https://serp.test/check']);
+    Http::fake(['https://serp.test/check*' => Http::response(['rank' => 4])]);
+
+    $keyword = demoKeyword();
+
+    expect(fn () => (new CheckKeywordRankingsJob($keyword))->handle(app(RankingChecker::class)))->toThrow(RuntimeException::class);
+    expect($keyword->rankings()->count())->toBe(0);
+});
+
+it('rejects invalid provider positions', function (mixed $position) {
+    config(['rankwatch.ranking_api_url' => 'https://serp.test/check']);
+    Http::fake(['https://serp.test/check*' => Http::response(['position' => $position])]);
+
+    $keyword = demoKeyword();
+
+    expect(fn () => (new CheckKeywordRankingsJob($keyword))->handle(app(RankingChecker::class)))->toThrow(RuntimeException::class);
+    expect($keyword->rankings()->count())->toBe(0);
+})->with([
+    'negative' => [-1],
+    'zero' => [0],
+    'float' => [1.5],
+    'array' => [[3]],
+    'object' => [(object) ['position' => 3]],
+    'too large' => [101],
+    'nonnumeric string' => ['first'],
+]);
+
+it('keeps current ranking unchanged when a later provider check fails', function () {
+    $keyword = demoKeyword();
+    $keyword->rankings()->create(['position' => 8, 'status' => KeywordRanking::STATUS_FOUND, 'checked_at' => now()->subMinute()]);
+    config(['rankwatch.ranking_api_url' => 'https://serp.test/check']);
+    Http::fake(['https://serp.test/check*' => Http::response(['message' => 'bad'], 500)]);
+
+    expect(fn () => (new CheckKeywordRankingsJob($keyword))->handle(app(RankingChecker::class)))->toThrow(RuntimeException::class);
+
+    expect($keyword->refresh()->rankings()->count())->toBe(1)
+        ->and($keyword->current_position)->toBe(8);
+});
+
+it('orders previous rankings deterministically by checked time and id', function () {
+    $keyword = demoKeyword();
+    $time = now();
+
+    $keyword->rankings()->create(['position' => 9, 'status' => KeywordRanking::STATUS_FOUND, 'checked_at' => $time]);
+    $keyword->rankings()->create(['position' => 4, 'status' => KeywordRanking::STATUS_FOUND, 'checked_at' => $time]);
+
+    expect($keyword->refresh()->current_position)->toBe(4)
+        ->and($keyword->previous_position)->toBe(9);
+});
+
+it('ignores not found observations when calculating best position', function () {
+    $keyword = demoKeyword();
+
+    $keyword->rankings()->create(['position' => 14, 'status' => KeywordRanking::STATUS_FOUND, 'checked_at' => now()->subMinutes(2)]);
+    $keyword->rankings()->create(['position' => null, 'status' => KeywordRanking::STATUS_NOT_FOUND, 'checked_at' => now()->subMinute()]);
+    $keyword->rankings()->create(['position' => 7, 'status' => KeywordRanking::STATUS_FOUND, 'checked_at' => now()]);
+
+    expect($keyword->refresh()->best_position)->toBe(7);
+});
+
+it('does not calculate numeric change when found becomes not found', function () {
+    $keyword = demoKeyword();
+
+    $keyword->rankings()->create(['position' => 8, 'status' => KeywordRanking::STATUS_FOUND, 'checked_at' => now()->subMinute()]);
+    $keyword->rankings()->create(['position' => null, 'status' => KeywordRanking::STATUS_NOT_FOUND, 'checked_at' => now()]);
+
+    expect($keyword->refresh()->current_position_label)->toBe('Not found')
+        ->and($keyword->position_change)->toBeNull();
+});
+
+it('handles not found to found ranking history cleanly', function () {
+    $keyword = demoKeyword();
+
+    $keyword->rankings()->create(['position' => null, 'status' => KeywordRanking::STATUS_NOT_FOUND, 'checked_at' => now()->subMinute()]);
+    $keyword->rankings()->create(['position' => 6, 'status' => KeywordRanking::STATUS_FOUND, 'checked_at' => now()]);
+
+    expect($keyword->refresh()->current_position)->toBe(6)
+        ->and($keyword->previous_position_label)->toBe('Not found')
+        ->and($keyword->position_change)->toBeNull();
 });
 
 it('calculates seo score from issue severity', function () {
@@ -503,6 +678,187 @@ it('uses the same crawl availability guard for scheduled and manual dispatches',
         ->assertSessionHas('status', 'A crawl is already queued or running for this project.');
 
     Queue::assertPushed(CrawlProjectJob::class, 1);
+});
+
+it('prevents overlapping ranking execution for the same keyword', function () {
+    $keyword = User::factory()->create()
+        ->projects()
+        ->create(['name' => 'Acme Coffee', 'url' => 'https://acme.test'])
+        ->keywords()
+        ->create(['keyword' => 'coffee beans', 'country' => 'Indonesia', 'device' => 'desktop']);
+    $lock = Cache::lock(CheckKeywordRankingsJob::overlapKey($keyword), 30);
+    $lock->get();
+
+    $ran = false;
+    $job = new CheckKeywordRankingsJob($keyword);
+    $job->middleware()[0]->handle($job, function () use (&$ran) {
+        $ran = true;
+    });
+
+    $lock->forceRelease();
+
+    expect($ran)->toBeFalse();
+});
+
+it('does not block different keywords with the ranking overlap lock', function () {
+    $project = User::factory()->create()
+        ->projects()
+        ->create(['name' => 'Acme Coffee', 'url' => 'https://acme.test']);
+    $firstKeyword = $project->keywords()->create(['keyword' => 'coffee beans', 'country' => 'Indonesia', 'device' => 'desktop']);
+    $secondKeyword = $project->keywords()->create(['keyword' => 'arabica beans', 'country' => 'Indonesia', 'device' => 'desktop']);
+    $lock = Cache::lock(CheckKeywordRankingsJob::overlapKey($firstKeyword), 30);
+    $lock->get();
+
+    $ran = false;
+    $job = new CheckKeywordRankingsJob($secondKeyword);
+    $job->middleware()[0]->handle($job, function () use (&$ran) {
+        $ran = true;
+    });
+
+    $lock->forceRelease();
+
+    expect($ran)->toBeTrue();
+});
+
+it('suppresses duplicate ranking dispatches while one is queued', function () {
+    Queue::fake();
+
+    $keyword = User::factory()->create()
+        ->projects()
+        ->create(['name' => 'Acme Coffee', 'url' => 'https://acme.test'])
+        ->keywords()
+        ->create(['keyword' => 'coffee beans', 'country' => 'Indonesia', 'device' => 'desktop']);
+
+    expect(CheckKeywordRankingsJob::dispatchIfAvailable($keyword))->toBeTrue();
+    expect(CheckKeywordRankingsJob::dispatchIfAvailable($keyword))->toBeFalse();
+
+    Queue::assertPushed(CheckKeywordRankingsJob::class, 1);
+});
+
+it('allows future ranking dispatches after the queued marker expires', function () {
+    Queue::fake();
+    config(['rankwatch.ranking_job.lock_ttl' => 1]);
+
+    $keyword = User::factory()->create()
+        ->projects()
+        ->create(['name' => 'Acme Coffee', 'url' => 'https://acme.test'])
+        ->keywords()
+        ->create(['keyword' => 'coffee beans', 'country' => 'Indonesia', 'device' => 'desktop']);
+
+    expect(CheckKeywordRankingsJob::dispatchIfAvailable($keyword))->toBeTrue();
+    expect(CheckKeywordRankingsJob::dispatchIfAvailable($keyword))->toBeFalse();
+
+    $this->travel(2)->seconds();
+
+    expect(CheckKeywordRankingsJob::dispatchIfAvailable($keyword))->toBeTrue();
+    Queue::assertPushed(CheckKeywordRankingsJob::class, 2);
+});
+
+it('clears the ranking queued marker if dispatch fails', function () {
+    $keyword = User::factory()->create()
+        ->projects()
+        ->create(['name' => 'Acme Coffee', 'url' => 'https://acme.test'])
+        ->keywords()
+        ->create(['keyword' => 'coffee beans', 'country' => 'Indonesia', 'device' => 'desktop']);
+    $dispatcher = Mockery::mock(Dispatcher::class);
+    $dispatcher->shouldReceive('dispatch')->once()->andThrow(new RuntimeException('dispatch failed'));
+    app()->instance(Dispatcher::class, $dispatcher);
+
+    expect(fn () => CheckKeywordRankingsJob::dispatchIfAvailable($keyword))->toThrow(RuntimeException::class);
+    expect(Cache::has(CheckKeywordRankingsJob::queuedKey($keyword)))->toBeFalse();
+});
+
+it('clears the ranking queued marker when the job fails', function () {
+    $keyword = User::factory()->create()
+        ->projects()
+        ->create(['name' => 'Acme Coffee', 'url' => 'https://acme.test'])
+        ->keywords()
+        ->create(['keyword' => 'coffee beans', 'country' => 'Indonesia', 'device' => 'desktop']);
+    Cache::put(CheckKeywordRankingsJob::queuedKey($keyword), true, 60);
+    $checker = Mockery::mock(RankingChecker::class);
+    $checker->shouldReceive('check')->once()->andThrow(new RuntimeException('provider failed'));
+
+    expect(fn () => (new CheckKeywordRankingsJob($keyword))->handle($checker))->toThrow(RuntimeException::class);
+    expect(Cache::has(CheckKeywordRankingsJob::queuedKey($keyword)))->toBeFalse();
+});
+
+it('lets the ranking overlap lock expire', function () {
+    config(['rankwatch.ranking_job.lock_ttl' => 1]);
+
+    $keyword = User::factory()->create()
+        ->projects()
+        ->create(['name' => 'Acme Coffee', 'url' => 'https://acme.test'])
+        ->keywords()
+        ->create(['keyword' => 'coffee beans', 'country' => 'Indonesia', 'device' => 'desktop']);
+    $lock = Cache::lock(CheckKeywordRankingsJob::overlapKey($keyword), 1);
+    $lock->get();
+
+    $ran = false;
+    $job = new CheckKeywordRankingsJob($keyword);
+    $job->middleware()[0]->handle($job, function () use (&$ran) {
+        $ran = true;
+    });
+    expect($ran)->toBeFalse();
+
+    $this->travel(2)->seconds();
+
+    $job->middleware()[0]->handle($job, function () use (&$ran) {
+        $ran = true;
+    });
+
+    expect($ran)->toBeTrue();
+});
+
+it('uses guarded dispatch paths from the scheduler', function () {
+    Queue::fake();
+
+    $project = User::factory()->create()
+        ->projects()
+        ->create(['name' => 'Acme Coffee', 'url' => 'https://acme.test']);
+    $project->keywords()->create(['keyword' => 'coffee beans', 'country' => 'Indonesia', 'device' => 'desktop']);
+    $event = rankwatchScheduleEvent();
+
+    $event->run(app());
+    $event->run(app());
+
+    Queue::assertPushed(CrawlProjectJob::class, 1);
+    Queue::assertPushed(CheckKeywordRankingsJob::class, 1);
+});
+
+it('skips overlapping scheduler dispatch runs', function () {
+    Queue::fake();
+
+    User::factory()->create()
+        ->projects()
+        ->create(['name' => 'Acme Coffee', 'url' => 'https://acme.test'])
+        ->keywords()
+        ->create(['keyword' => 'coffee beans', 'country' => 'Indonesia', 'device' => 'desktop']);
+    $event = rankwatchScheduleEvent();
+    $lock = Cache::lock($event->mutexName(), $event->expiresAt * 60);
+    $lock->get();
+
+    $event->run(app());
+
+    $lock->forceRelease();
+
+    Queue::assertNothingPushed();
+});
+
+it('scheduler dispatches more than one chunk of projects and keywords', function () {
+    Queue::fake();
+
+    collect(range(1, 101))->each(function (int $i) {
+        User::factory()->create()
+            ->projects()
+            ->create(['name' => "Site {$i}", 'url' => "https://site{$i}.test"])
+            ->keywords()
+            ->create(['keyword' => "coffee beans {$i}", 'country' => 'Indonesia', 'device' => 'desktop']);
+    });
+
+    rankwatchScheduleEvent()->run(app());
+
+    Queue::assertPushed(CrawlProjectJob::class, 101);
+    Queue::assertPushed(CheckKeywordRankingsJob::class, 101);
 });
 
 it('rejects unsupported crawl URL schemes', function (string $url) {
