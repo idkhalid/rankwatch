@@ -12,6 +12,10 @@ class User extends Authenticatable implements MustVerifyEmail
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
 
+    public const PLAN_FREE = 'free';
+
+    public const PLAN_PRO = 'pro';
+
     /**
      * The attributes that are mass assignable.
      *
@@ -51,5 +55,30 @@ class User extends Authenticatable implements MustVerifyEmail
     public function projects()
     {
         return $this->hasMany(Project::class);
+    }
+
+    public function isFree(): bool
+    {
+        return $this->plan === self::PLAN_FREE;
+    }
+
+    public function isPro(): bool
+    {
+        return $this->plan === self::PLAN_PRO;
+    }
+
+    public function planLimit(string $key): int|string|null
+    {
+        return config("plans.{$this->plan}.{$key}") ?? config("plans.".self::PLAN_FREE.".{$key}");
+    }
+
+    public function canUseFeature(string $feature): bool
+    {
+        return (bool) (config("plans.{$this->plan}.features.{$feature}") ?? false);
+    }
+
+    public function monitoringIntervalDays(string $frequencyKey): int
+    {
+        return $this->planLimit($frequencyKey) === 'weekly' ? 7 : 1;
     }
 }

@@ -15,6 +15,11 @@ class DatabaseSeeder extends Seeder
             'email' => 'demo@rankwatch.test',
         ]);
 
+        User::factory()->pro()->create([
+            'name' => 'Pro Demo User',
+            'email' => 'pro@rankwatch.test',
+        ]);
+
         $project = $user->projects()->create([
             'name' => 'Acme Coffee',
             'url' => 'https://example.com',
@@ -32,8 +37,6 @@ class DatabaseSeeder extends Seeder
             'espresso beans online',
             'indonesian coffee roaster',
             'coffee gift box',
-            'buy coffee beans online',
-            'specialty coffee jakarta',
         ];
 
         foreach ($keywords as $index => $term) {

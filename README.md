@@ -19,8 +19,9 @@ The application intentionally stays simple: Blade-rendered pages, Eloquent model
 - SEO score based on open issues from the latest completed crawl
 - Current SEO state derived from the latest successfully completed crawl
 - Queue-based manual crawls with throttling and per-project overlap protection
-- Daily scheduled crawls and keyword ranking checks
-- Email notifications for crawl completion, critical issues, and keyword drops
+- Free and Pro plan limits for projects, keywords, crawl pages, automation frequency, and notification gates
+- Plan-aware scheduled crawls and keyword ranking checks
+- Email notifications for crawl completion, critical issues, and keyword drops according to plan entitlement and user preference
 - Printable project reports
 - Server-rendered marketing pages, `sitemap.xml`, and `robots.txt`
 - Demo seed data for local portfolio walkthroughs
@@ -129,6 +130,19 @@ Keywords belong to projects. Each ranking check stores a `keyword_rankings` hist
 
 RankWatch does not aggressively scrape search engines. The ranking checker is designed around a configurable external SERP provider. When `RANKING_API_URL` is empty, it uses a deterministic demo fallback so local seeded demos remain useful.
 
+## Plans
+
+RankWatch has a simple Free / Pro entitlement model stored on `users.plan`. Billing, checkout, subscription lifecycle, invoices, and webhooks are not implemented.
+
+Plan limits live in `config/plans.php`:
+
+- Free: 1 website, 10 keywords per website, up to 10 pages per crawl, weekly automatic crawls/ranking checks, critical issue notifications.
+- Pro: up to 10 websites, 100 keywords per website, up to 100 pages per crawl, daily automatic crawls/ranking checks, keyword drop notifications, crawl completion notifications, and critical issue notifications. Pro is coming soon; billing is not implemented.
+
+Crawler plan limits are an additional cap. The system safety ceiling in `config/rankwatch.php` still wins if it is lower than the plan allowance.
+
+The 30/365-day history retention values in `config/plans.php` are policy groundwork only. No automatic cleanup or visibility filtering enforces them yet.
+
 ## Database Model
 
 Core entities:
@@ -195,19 +209,19 @@ MAIL_FROM_ADDRESS="hello@example.com"
 
 RANKING_API_URL=
 RANKING_API_KEY=
-RANKWATCH_CRAWL_LIMIT=8
+RANKWATCH_CRAWL_LIMIT=100
 ```
 
 Do not commit real credentials or API keys.
 
 ## Demo Data
 
-The database seeder creates a local demo account:
+The database seeder creates local demo accounts:
 
-- Email: `demo@rankwatch.test`
-- Password: `password`
+- Free: `demo@rankwatch.test` / `password`
+- Pro: `pro@rankwatch.test` / `password`
 
-It also creates an Acme Coffee project, sample keywords, historical rankings, one completed crawl, and example SEO issues.
+It also creates an Acme Coffee project, sample keywords, historical rankings, one completed crawl, and example SEO issues for the Free demo account. For local testing, assign Pro through the seeder/factory state or manually via Tinker/database admin.
 
 These credentials are for local seeded demos only.
 

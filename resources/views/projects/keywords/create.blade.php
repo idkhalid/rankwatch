@@ -1,5 +1,8 @@
 <x-app-layout>
     <x-slot:heading>Add Keyword</x-slot:heading>
+    @if ($project->keywords()->count() >= auth()->user()->planLimit('keywords_per_project'))
+        <div class="mb-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">This website is at {{ $project->keywords()->count() }} / {{ auth()->user()->planLimit('keywords_per_project') }} keywords. Upgrade to Pro for more capacity.</div>
+    @endif
     <x-card>
         <form method="POST" action="{{ route('keywords.store', $project) }}" class="space-y-4">
             @csrf

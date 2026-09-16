@@ -1,5 +1,8 @@
 <x-app-layout>
     <x-slot:heading>New Project</x-slot:heading>
+    @if (auth()->user()->projects()->count() >= auth()->user()->planLimit('projects'))
+        <div class="mb-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">Your {{ ucfirst(auth()->user()->plan) }} plan supports {{ auth()->user()->planLimit('projects') }} {{ auth()->user()->planLimit('projects') === 1 ? 'website' : 'websites' }}. Upgrade to Pro to monitor additional websites.</div>
+    @endif
     <x-card>
         <form method="POST" action="{{ route('projects.store') }}" class="space-y-4">
             @csrf

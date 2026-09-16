@@ -13,11 +13,25 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::call(function () {
-    Project::query()->chunkById(100, fn ($projects) => $projects->each(
-        fn (Project $project) => CrawlProjectJob::dispatchIfAvailable($project)
-    ));
+    Project::query()
+        ->with(['user', 'latestCompletedCrawl'])
+        ->chunkById(100, fn ($projects) => $projects->each(function (Project $project): void {
+            $last = $project->latestCompletedCrawl?->finished_at;
+            $days = $project->user->monitoringIntervalDays('crawl_frequency');
 
-    Keyword::query()->chunkById(100, fn ($keywords) => $keywords->each(
-        fn (Keyword $keyword) => CheckKeywordRankingsJob::dispatchIfAvailable($keyword)
-    ));
+            if (! $last || $last->lte(now()->subDays($days))) {
+                CrawlProjectJob::dispatchIfAvailable($project);
+            }
+        }));
+
+    Keyword::query()
+        ->with(['latestRanking', 'project.user'])
+        ->chunkById(100, fn ($keywords) => $keywords->each(function (Keyword $keyword): void {
+            $last = $keyword->latestRanking?->checked_at;
+            $days = $keyword->project->user->monitoringIntervalDays('ranking_frequency');
+
+            if (! $last || $last->lte(now()->subDays($days))) {
+                CheckKeywordRankingsJob::dispatchIfAvailable($keyword);
+            }
+        }));
 })->name('rankwatch-daily-monitoring')->dailyAt('02:00')->withoutOverlapping();

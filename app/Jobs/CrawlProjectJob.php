@@ -71,6 +71,7 @@ class CrawlProjectJob implements ShouldQueue
     public function handle(SeoCrawler $crawler): void
     {
         try {
+            $this->project->load('user');
             $crawl = $crawler->crawl($this->project);
             $user = $this->project->user;
 
@@ -78,10 +79,12 @@ class CrawlProjectJob implements ShouldQueue
                 return;
             }
 
-            $user->notify(new CrawlCompleted($crawl));
+            if ($user->canUseFeature('crawl_completed_notifications')) {
+                $user->notify(new CrawlCompleted($crawl));
+            }
 
             $criticalCount = $crawl->issues()->where('severity', 'critical')->count();
-            if ($criticalCount > 0) {
+            if ($criticalCount > 0 && $user->canUseFeature('critical_issue_notifications')) {
                 $user->notify(new CriticalIssuesFound($this->project, $criticalCount));
             }
         } finally {

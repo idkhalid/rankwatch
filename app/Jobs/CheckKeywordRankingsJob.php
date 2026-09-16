@@ -70,6 +70,7 @@ class CheckKeywordRankingsJob implements ShouldQueue
     public function handle(RankingChecker $checker): void
     {
         try {
+            $this->keyword->load('project.user');
             $previous = $this->keyword->rankings()
                 ->orderByDesc('checked_at')
                 ->orderByDesc('id')
@@ -83,8 +84,10 @@ class CheckKeywordRankingsJob implements ShouldQueue
             ]);
 
             $drop = $previous && $result['position'] ? $result['position'] - $previous : 0;
-            if ($drop >= 5 && $this->keyword->project->user->email_notifications) {
-                $this->keyword->project->user->notify(new KeywordDropped($this->keyword, $drop));
+            $user = $this->keyword->project->user;
+
+            if ($drop >= 5 && $user->email_notifications && $user->canUseFeature('keyword_drop_notifications')) {
+                $user->notify(new KeywordDropped($this->keyword, $drop));
             }
         } finally {
             Cache::forget(static::queuedKey($this->keyword));

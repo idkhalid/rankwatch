@@ -5,6 +5,7 @@ namespace App\Http\Requests;
 use App\Services\CrawlUrlValidator;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class StoreProjectRequest extends FormRequest
 {
@@ -36,6 +37,21 @@ class StoreProjectRequest extends FormRequest
                 },
             ],
             'description' => ['nullable', 'string', 'max:1000'],
+        ];
+    }
+
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                $limit = $this->user()->planLimit('projects');
+
+                if ($this->user()->projects()->count() >= $limit) {
+                    $plan = ucfirst($this->user()->plan);
+                    $website = $limit === 1 ? 'website' : 'websites';
+                    $validator->errors()->add('plan', "Your {$plan} plan supports {$limit} {$website}. Upgrade to Pro to monitor additional websites.");
+                }
+            },
         ];
     }
 }

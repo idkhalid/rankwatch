@@ -16,6 +16,9 @@ class SeoCrawler
 
     public function crawl(Project $project): Crawl
     {
+        $project->loadMissing('user');
+        $maxPages = min((int) config('rankwatch.crawl.max_pages'), (int) $project->user->planLimit('crawl_pages'));
+
         $crawl = $project->crawls()->create([
             'status' => 'running',
             'started_at' => now(),
@@ -27,8 +30,10 @@ class SeoCrawler
         $checkedLinks = [];
         $requests = 0;
 
-        foreach ($pages as $url) {
-            if (count($visited) >= config('rankwatch.crawl.max_pages') || isset($visited[$url])) {
+        for ($i = 0; $i < count($pages); $i++) {
+            $url = $pages[$i];
+
+            if (count($visited) >= $maxPages || isset($visited[$url])) {
                 continue;
             }
 
@@ -119,7 +124,7 @@ class SeoCrawler
                     continue;
                 }
 
-                if (count($pages) < config('rankwatch.crawl.max_pages') && ! isset($visited[$href])) {
+                if (count($pages) < $maxPages && ! isset($visited[$href])) {
                     $pages[] = $href;
                 }
 

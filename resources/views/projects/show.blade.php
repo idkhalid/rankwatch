@@ -3,14 +3,18 @@
     <x-slot:heading>{{ $project->name }}</x-slot:heading>
     @php
         $keywords = $project->keywords;
+        $keywordLimit = auth()->user()->planLimit('keywords_per_project');
     @endphp
+    @if ($keywords->count() >= $keywordLimit && auth()->user()->isFree())
+        <div class="mb-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">This website has {{ $keywords->count() }} / {{ $keywordLimit }} keywords. Upgrade to Pro for more keywords per website.</div>
+    @endif
     <div class="mb-5 flex flex-wrap gap-3">
         <x-button :href="route('keywords.create', $project)">Add keyword</x-button>
         <form method="POST" action="{{ route('projects.crawl', $project) }}">@csrf<x-button type="submit" variant="secondary">Run crawl</x-button></form>
     </div>
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <x-card><p class="text-sm text-slate-500">SEO Score</p><p class="mt-2 text-3xl font-bold">{{ $score }} / 100</p></x-card>
-        <x-card><p class="text-sm text-slate-500">Tracked Keywords</p><p class="mt-2 text-3xl font-bold">{{ $keywords->count() }}</p></x-card>
+        <x-card><p class="text-sm text-slate-500">Tracked Keywords</p><p class="mt-2 text-3xl font-bold">{{ $keywords->count() }} / {{ $keywordLimit }}</p></x-card>
         <x-card><p class="text-sm text-slate-500">Average Position</p><p class="mt-2 text-3xl font-bold">{{ round($keywords->pluck('current_position')->filter()->avg() ?? 0, 1) ?: '-' }}</p></x-card>
         <x-card><p class="text-sm text-slate-500">Last Crawl</p><p class="mt-2 text-xl font-bold">{{ $project->latestCompletedCrawl?->finished_at?->diffForHumans() ?? 'Never' }}</p></x-card>
     </div>

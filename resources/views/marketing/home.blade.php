@@ -30,13 +30,17 @@
     </section>
     <section class="mx-auto max-w-6xl px-4 py-14 sm:px-6 lg:px-8">
         <h2 class="text-2xl font-bold">Pricing</h2>
-        <div class="mt-5 grid gap-5 sm:grid-cols-3">
-            @foreach (['Starter' => '$19', 'Freelancer' => '$39', 'Agency' => '$79'] as $name => $price)
-                <article class="rounded-lg border border-slate-200 p-5">
-                    <h3 class="font-semibold">{{ $name }}</h3>
-                    <p class="mt-3 text-3xl font-bold">{{ $price }}<span class="text-sm font-normal text-slate-500">/mo</span></p>
-                </article>
-            @endforeach
+        <div class="mt-5 grid gap-5 md:grid-cols-2">
+            <article class="rounded-lg border border-slate-200 p-5">
+                <h3 class="font-semibold">Free</h3>
+                <p class="mt-3 text-3xl font-bold">$0</p>
+                <p class="mt-2 text-sm text-slate-600">1 website, 10 keywords, up to 10 pages per crawl, weekly automatic monitoring.</p>
+            </article>
+            <article class="rounded-lg border border-slate-900 p-5">
+                <h3 class="font-semibold">Pro</h3>
+                <p class="mt-3 text-3xl font-bold">Coming soon</p>
+                <p class="mt-2 text-sm text-slate-600">Up to 10 websites, 100 keywords per website, up to 100 pages per crawl, daily monitoring.</p>
+            </article>
         </div>
     </section>
     <section class="mx-auto max-w-3xl px-4 pb-16 sm:px-6 lg:px-8">

@@ -1,6 +1,13 @@
 <x-app-layout>
     <x-slot:title>Keywords - {{ $project->name }}</x-slot:title>
     <x-slot:heading>Keywords</x-slot:heading>
+    @php
+        $keywordLimit = auth()->user()->planLimit('keywords_per_project');
+        $keywordCount = $project->keywords()->count();
+    @endphp
+    @if ($keywordCount >= $keywordLimit)
+        <div class="mb-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">This website is at {{ $keywordCount }} / {{ $keywordLimit }} keywords. Upgrade to Pro for more capacity.</div>
+    @endif
     <div class="mb-5 flex justify-end"><x-button :href="route('keywords.create', $project)">Add keyword</x-button></div>
     <x-card>
         <div class="overflow-x-auto">
