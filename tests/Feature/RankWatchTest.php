@@ -443,8 +443,41 @@ it('renders the dashboard and project dashboard', function () {
     $user = User::factory()->create();
     $project = $user->projects()->create(['name' => 'Acme Coffee', 'url' => 'https://acme.test']);
 
-    $this->actingAs($user)->get(route('dashboard'))->assertOk()->assertSee('Dashboard');
+    $this->actingAs($user)
+        ->get(route('dashboard'))
+        ->assertOk()
+        ->assertSee('Overview')
+        ->assertSee('Free Plan')
+        ->assertSee('Websites')
+        ->assertSee('1 / 1')
+        ->assertSee('Up to 10 pages');
     $this->actingAs($user)->get(route('projects.show', $project))->assertOk()->assertSee('Acme Coffee');
+});
+
+it('renders a deliberate empty dashboard state', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->get(route('dashboard'))
+        ->assertOk()
+        ->assertSee('No websites yet')
+        ->assertSee('Create Project')
+        ->assertSee('SEO Score')
+        ->assertSee('100 / 100');
+});
+
+it('keeps dashboard project data isolated to the authenticated user', function () {
+    $owner = User::factory()->create();
+    $owner->projects()->create(['name' => 'Owner Secret Site', 'url' => 'https://owner.test']);
+
+    $viewer = User::factory()->create();
+    $viewer->projects()->create(['name' => 'Viewer Site', 'url' => 'https://viewer.test']);
+
+    $this->actingAs($viewer)
+        ->get(route('dashboard'))
+        ->assertOk()
+        ->assertSee('Viewer Site')
+        ->assertDontSee('Owner Secret Site');
 });
 
 it('uses first completed crawl issues as the current seo state', function () {

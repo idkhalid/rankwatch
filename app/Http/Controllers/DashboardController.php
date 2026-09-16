@@ -48,6 +48,7 @@ class DashboardController extends Controller
             'keywordCount' => $user->projects()->join('keywords', 'keywords.project_id', '=', 'projects.id')->count(),
             'averagePosition' => round($averagePosition ?? 0, 1),
             'positionChanges' => 0,
+            'issueCounts' => $currentIssueCounts,
             'issueCount' => $currentIssueCounts->sum(),
             'lastCrawl' => $lastCrawl,
         ]);
