@@ -16,6 +16,7 @@ use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
@@ -273,6 +274,73 @@ it('handles not found to found ranking history cleanly', function () {
         ->and($keyword->position_change)->toBeNull();
 });
 
+it('renders keyword index summaries without loading full ranking history per keyword', function () {
+    $user = User::factory()->pro()->create();
+    $project = $user->projects()->create(['name' => 'Scale Site', 'url' => 'https://scale.test']);
+
+    foreach (range(1, 80) as $i) {
+        $keyword = $project->keywords()->create(['keyword' => "term {$i}", 'country' => 'Indonesia', 'device' => 'desktop']);
+
+        foreach (range(1, 5) as $day) {
+            $keyword->rankings()->create([
+                'position' => $day === 5 && $i % 10 === 0 ? null : $day + $i,
+                'status' => $day === 5 && $i % 10 === 0 ? KeywordRanking::STATUS_NOT_FOUND : KeywordRanking::STATUS_FOUND,
+                'checked_at' => now()->subDays(5 - $day),
+            ]);
+        }
+    }
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
+    $this->actingAs($user)
+        ->get(route('keywords.index', $project))
+        ->assertOk()
+        ->assertSee('Showing')
+        ->assertSee('Not found');
+
+    expect(count(DB::getQueryLog()))->toBeLessThan(30);
+    DB::disableQueryLog();
+});
+
+it('bounds keyword detail chart and paginates ranking history', function () {
+    $keyword = demoKeyword();
+
+    foreach (range(1, 45) as $i) {
+        $keyword->rankings()->create([
+            'position' => $i,
+            'status' => KeywordRanking::STATUS_FOUND,
+            'checked_at' => now()->subDays(45 - $i),
+        ]);
+    }
+
+    $this->actingAs($keyword->project->user)
+        ->get(route('keywords.show', [$keyword->project, $keyword]))
+        ->assertOk()
+        ->assertViewHas('chartRankings', fn ($rankings) => $rankings->count() === 30)
+        ->assertViewHas('historyRankings', fn ($rankings) => $rankings->count() === 30 && $rankings->total() === 45);
+});
+
+it('renders keyword summaries for found not found and no history states', function () {
+    $user = User::factory()->pro()->create();
+    $project = $user->projects()->create(['name' => 'States', 'url' => 'https://states.test']);
+    $found = $project->keywords()->create(['keyword' => 'found keyword', 'country' => 'Indonesia', 'device' => 'desktop']);
+    $notFound = $project->keywords()->create(['keyword' => 'missing keyword', 'country' => 'Indonesia', 'device' => 'desktop']);
+    $project->keywords()->create(['keyword' => 'new keyword', 'country' => 'Indonesia', 'device' => 'desktop']);
+
+    $found->rankings()->create(['position' => 4, 'status' => KeywordRanking::STATUS_FOUND, 'checked_at' => now()]);
+    $notFound->rankings()->create(['position' => null, 'status' => KeywordRanking::STATUS_NOT_FOUND, 'checked_at' => now()]);
+
+    $this->actingAs($user)
+        ->get(route('keywords.index', $project))
+        ->assertOk()
+        ->assertSee('found keyword')
+        ->assertSee('4')
+        ->assertSee('missing keyword')
+        ->assertSee('Not found')
+        ->assertSee('new keyword');
+});
+
 it('calculates seo score from issue severity', function () {
     $issues = collect([
         (object) ['severity' => 'critical'],
@@ -503,6 +571,87 @@ it('keeps dashboard and report scores consistent for current crawl issues', func
 
     $this->actingAs($user)->get(route('dashboard'))->assertViewHas('score', 97);
     $this->actingAs($user)->get(route('projects.report', $project))->assertViewHas('score', 97);
+});
+
+it('renders dashboard with many keywords without loading full ranking history', function () {
+    $user = User::factory()->pro()->create();
+
+    foreach (range(1, 5) as $projectNumber) {
+        $project = $user->projects()->create(['name' => "Project {$projectNumber}", 'url' => "https://project{$projectNumber}.test"]);
+        completedCrawl($project, [[
+            'type' => 'missing_h1',
+            'severity' => 'medium',
+            'message' => 'Missing H1 heading.',
+        ]], now()->subDays($projectNumber));
+
+        foreach (range(1, 25) as $keywordNumber) {
+            $keyword = $project->keywords()->create([
+                'keyword' => "term {$projectNumber}-{$keywordNumber}",
+                'country' => 'Indonesia',
+                'device' => 'desktop',
+            ]);
+
+            foreach (range(1, 4) as $i) {
+                $keyword->rankings()->create([
+                    'position' => $i + $keywordNumber,
+                    'status' => KeywordRanking::STATUS_FOUND,
+                    'checked_at' => now()->subDays(4 - $i),
+                ]);
+            }
+        }
+    }
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
+    $this->actingAs($user)
+        ->get(route('dashboard'))
+        ->assertOk()
+        ->assertSee('125')
+        ->assertViewHas('issueCount', 5);
+
+    expect(count(DB::getQueryLog()))->toBeLessThan(25);
+    DB::disableQueryLog();
+});
+
+it('renders reports from latest completed crawl and bounded keyword summaries', function () {
+    $user = User::factory()->pro()->create();
+    $project = $user->projects()->create(['name' => 'Report Site', 'url' => 'https://report.test']);
+    completedCrawl($project, [[
+        'type' => 'missing_title',
+        'severity' => 'high',
+        'message' => 'Old missing title.',
+    ]], now()->subDays(2));
+    completedCrawl($project, [[
+        'type' => 'missing_h1',
+        'severity' => 'medium',
+        'message' => 'Current missing H1.',
+    ]], now());
+
+    foreach (range(1, 40) as $i) {
+        $keyword = $project->keywords()->create(['keyword' => "report {$i}", 'country' => 'Indonesia', 'device' => 'desktop']);
+
+        foreach (range(1, 6) as $rank) {
+            $keyword->rankings()->create([
+                'position' => $rank + $i,
+                'status' => KeywordRanking::STATUS_FOUND,
+                'checked_at' => now()->subDays(6 - $rank),
+            ]);
+        }
+    }
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
+    $this->actingAs($user)
+        ->get(route('projects.report', $project))
+        ->assertOk()
+        ->assertSee('Current missing H1.')
+        ->assertDontSee('Old missing title.')
+        ->assertViewHas('score', 97);
+
+    expect(count(DB::getQueryLog()))->toBeLessThan(30);
+    DB::disableQueryLog();
 });
 
 it('filters only current crawl issues by severity', function () {

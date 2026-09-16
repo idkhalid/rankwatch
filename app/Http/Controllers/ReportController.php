@@ -11,12 +11,14 @@ class ReportController extends Controller
     {
         $this->authorize('view', $project);
 
-        $project->load(['keywords.rankings', 'latestCompletedCrawl.issues' => fn ($query) => $query->open()->latest()]);
+        $project->load(['latestCompletedCrawl.issues' => fn ($query) => $query->open()->latest()]);
+        $keywords = $project->keywords()->withRankingSummary()->latest()->get();
 
         $currentIssues = $project->latestCompletedCrawl?->issues ?? collect();
 
         return view('projects.reports.show', [
             'project' => $project,
+            'keywords' => $keywords,
             'issues' => $currentIssues,
             'score' => $calculator->calculate($currentIssues),
         ]);

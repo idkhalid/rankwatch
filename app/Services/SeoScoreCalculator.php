@@ -27,4 +27,16 @@ class SeoScoreCalculator
 
         return max(0, $score);
     }
+
+    public function calculateFromSeverityCounts(Collection $severityCounts): int
+    {
+        $score = 100;
+        $deductions = config('rankwatch.scoring');
+
+        foreach ($severityCounts as $severity => $count) {
+            $score -= ($deductions[$severity] ?? 0) * $count;
+        }
+
+        return max(0, $score);
+    }
 }

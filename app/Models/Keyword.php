@@ -4,12 +4,15 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 
 class Keyword extends Model
 {
     use HasFactory;
 
     protected $fillable = ['keyword', 'target_url', 'country', 'device'];
+
+    private ?Collection $rankingSnapshot = null;
 
     public function project()
     {
@@ -26,23 +29,46 @@ class Keyword extends Model
         return $this->hasOne(KeywordRanking::class)->ofMany(['checked_at' => 'max', 'id' => 'max']);
     }
 
+    public function recentRankings()
+    {
+        return $this->hasMany(KeywordRanking::class)
+            ->successful()
+            ->orderByDesc('checked_at')
+            ->orderByDesc('id')
+            ->limit(2);
+    }
+
+    public function scopeWithRankingSummary($query)
+    {
+        return $query
+            ->with(['recentRankings'])
+            ->withMin(['rankings as best_position_value' => fn ($query) => $query
+                ->where('status', KeywordRanking::STATUS_FOUND)
+                ->whereNotNull('position')
+            ], 'position');
+    }
+
     public function getCurrentPositionAttribute(): ?int
     {
-        $ranking = $this->orderedRankings()->first();
+        $ranking = $this->rankingSnapshot()->first();
 
         return $ranking?->status === KeywordRanking::STATUS_FOUND ? $ranking->position : null;
     }
 
     public function getPreviousPositionAttribute(): ?int
     {
-        $ranking = $this->orderedRankings()->skip(1)->first();
+        $ranking = $this->rankingSnapshot()->skip(1)->first();
 
         return $ranking?->status === KeywordRanking::STATUS_FOUND ? $ranking->position : null;
     }
 
     public function getBestPositionAttribute(): ?int
     {
-        return $this->rankings
+        if (array_key_exists('best_position_value', $this->attributes)) {
+            return $this->attributes['best_position_value'] === null ? null : (int) $this->attributes['best_position_value'];
+        }
+
+        return $this->rankings()
             ->where('status', KeywordRanking::STATUS_FOUND)
             ->whereNotNull('position')
             ->min('position');
@@ -59,21 +85,26 @@ class Keyword extends Model
 
     public function getCurrentPositionLabelAttribute(): string
     {
-        return $this->positionLabel($this->orderedRankings()->first());
+        return $this->positionLabel($this->rankingSnapshot()->first());
     }
 
     public function getPreviousPositionLabelAttribute(): string
     {
-        return $this->positionLabel($this->orderedRankings()->skip(1)->first());
+        return $this->positionLabel($this->rankingSnapshot()->skip(1)->first());
     }
 
-    private function orderedRankings()
+    private function rankingSnapshot(): Collection
     {
-        return $this->rankings->sort(function (KeywordRanking $a, KeywordRanking $b) {
-            $time = ($b->checked_at?->getTimestamp() ?? 0) <=> ($a->checked_at?->getTimestamp() ?? 0);
+        if ($this->relationLoaded('recentRankings')) {
+            return $this->recentRankings;
+        }
 
-            return $time !== 0 ? $time : $b->id <=> $a->id;
-        })->values();
+        return $this->rankingSnapshot ??= $this->rankings()
+            ->successful()
+            ->orderByDesc('checked_at')
+            ->orderByDesc('id')
+            ->limit(2)
+            ->get();
     }
 
     private function positionLabel(?KeywordRanking $ranking): string

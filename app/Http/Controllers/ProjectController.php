@@ -36,12 +36,14 @@ class ProjectController extends Controller
     {
         $this->authorize('view', $project);
 
-        $project->load(['latestCompletedCrawl.issues' => fn ($query) => $query->open()->latest()->limit(6), 'keywords.rankings']);
+        $project->load(['latestCompletedCrawl.issues' => fn ($query) => $query->open()->latest()->limit(6)]);
+        $keywords = $project->keywords()->withRankingSummary()->latest()->get();
 
         $currentIssues = $project->latestCompletedCrawl?->issues ?? collect();
 
         return view('projects.show', [
             'project' => $project,
+            'keywords' => $keywords,
             'issues' => $currentIssues,
             'score' => $calculator->calculate($currentIssues),
         ]);

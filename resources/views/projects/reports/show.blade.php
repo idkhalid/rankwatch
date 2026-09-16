@@ -8,7 +8,7 @@
         <p class="mt-1 text-slate-500">{{ $project->url }}</p>
         <div class="mt-6 grid gap-4 sm:grid-cols-4">
             <div><p class="text-sm text-slate-500">SEO score</p><p class="text-3xl font-bold">{{ $score }}</p></div>
-            <div><p class="text-sm text-slate-500">Keywords</p><p class="text-3xl font-bold">{{ $project->keywords->count() }}</p></div>
+            <div><p class="text-sm text-slate-500">Keywords</p><p class="text-3xl font-bold">{{ $keywords->count() }}</p></div>
             <div><p class="text-sm text-slate-500">Open issues</p><p class="text-3xl font-bold">{{ $issues->count() }}</p></div>
             <div><p class="text-sm text-slate-500">Pages crawled</p><p class="text-3xl font-bold">{{ $project->latestCompletedCrawl?->pages_crawled ?? 0 }}</p></div>
         </div>
@@ -18,7 +18,7 @@
         <table class="mt-3 w-full text-left text-sm">
             <thead class="text-slate-500"><tr><th class="py-2">Keyword</th><th>Current</th><th>Change</th></tr></thead>
             <tbody class="divide-y divide-slate-200">
-            @foreach ($project->keywords as $keyword)
+            @foreach ($keywords as $keyword)
                 <tr><td class="py-2">{{ $keyword->keyword }}</td><td>{{ $keyword->current_position_label }}</td><td>{{ $keyword->position_change ?? '-' }}</td></tr>
             @endforeach
             </tbody>

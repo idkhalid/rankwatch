@@ -10,11 +10,11 @@
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div>
                 <p class="text-sm font-semibold">{{ ucfirst($user->plan) }} Plan</p>
-                <p class="mt-1 text-sm text-slate-500">Websites {{ $projects->count() }} / {{ $projectLimit }} | Keywords {{ $keywordCount }} / {{ $keywordLimit }} per website | Up to {{ $user->planLimit('crawl_pages') }} pages/crawl</p>
+                <p class="mt-1 text-sm text-slate-500">Websites {{ $projectCount }} / {{ $projectLimit }} | Keywords {{ $keywordCount }} / {{ $keywordLimit }} per website | Up to {{ $user->planLimit('crawl_pages') }} pages/crawl</p>
             </div>
             <x-button :href="route('marketing.pricing')" variant="secondary">View plans</x-button>
         </div>
-        @if ($projects->count() >= $projectLimit && $user->isFree())
+        @if ($projectCount >= $projectLimit && $user->isFree())
             <p class="mt-3 text-sm text-slate-600">Your Free plan supports 1 website. Upgrade to Pro to monitor additional websites.</p>
         @endif
     </x-card>
@@ -34,7 +34,7 @@
                 <a href="{{ route('projects.show', $project) }}" class="block py-4 hover:bg-slate-50">
                     <div class="flex items-center justify-between gap-4">
                         <div><p class="font-medium">{{ $project->name }}</p><p class="text-sm text-slate-500">{{ $project->domain }}</p></div>
-                        <div class="text-sm text-slate-500">{{ $project->keywords->count() }} keywords</div>
+                        <div class="text-sm text-slate-500">{{ $project->keywords_count }} keywords</div>
                     </div>
                 </a>
             @empty

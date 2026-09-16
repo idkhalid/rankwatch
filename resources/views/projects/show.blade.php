@@ -1,10 +1,7 @@
 <x-app-layout>
     <x-slot:title>{{ $project->name }} - RankWatch</x-slot:title>
     <x-slot:heading>{{ $project->name }}</x-slot:heading>
-    @php
-        $keywords = $project->keywords;
-        $keywordLimit = auth()->user()->planLimit('keywords_per_project');
-    @endphp
+    @php($keywordLimit = auth()->user()->planLimit('keywords_per_project'))
     @if ($keywords->count() >= $keywordLimit && auth()->user()->isFree())
         <div class="mb-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">This website has {{ $keywords->count() }} / {{ $keywordLimit }} keywords. Upgrade to Pro for more keywords per website.</div>
     @endif

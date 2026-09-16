@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreKeywordRequest;
 use App\Http\Requests\UpdateKeywordRequest;
 use App\Models\Keyword;
+use App\Models\KeywordRanking;
 use App\Models\Project;
 
 class KeywordController extends Controller
@@ -13,9 +14,10 @@ class KeywordController extends Controller
     {
         $this->authorize('view', $project);
 
-        $keywords = $project->keywords()->with('rankings')->latest()->paginate(20);
+        $keywords = $project->keywords()->withRankingSummary()->latest()->paginate(20);
+        $keywordCount = $project->keywords()->count();
 
-        return view('projects.keywords.index', compact('project', 'keywords'));
+        return view('projects.keywords.index', compact('project', 'keywords', 'keywordCount'));
     }
 
     public function create(Project $project)
@@ -38,9 +40,30 @@ class KeywordController extends Controller
     {
         $this->authorizeKeyword($project, $keyword);
 
-        $keyword->load('rankings');
+        $keyword->load(['recentRankings']);
+        $keyword->loadMin(['rankings as best_position_value' => fn ($query) => $query
+            ->where('status', KeywordRanking::STATUS_FOUND)
+            ->whereNotNull('position')
+        ], 'position');
 
-        return view('projects.keywords.show', compact('project', 'keyword'));
+        $chartRankings = $keyword->rankings()
+            ->where('status', KeywordRanking::STATUS_FOUND)
+            ->whereNotNull('position')
+            ->orderByDesc('checked_at')
+            ->orderByDesc('id')
+            ->limit(30)
+            ->get()
+            ->sortBy([['checked_at', 'asc'], ['id', 'asc']])
+            ->values();
+
+        $historyRankings = $keyword->rankings()
+            ->successful()
+            ->orderByDesc('checked_at')
+            ->orderByDesc('id')
+            ->paginate(30)
+            ->withQueryString();
+
+        return view('projects.keywords.show', compact('project', 'keyword', 'chartRankings', 'historyRankings'));
     }
 
     public function edit(Project $project, Keyword $keyword)
