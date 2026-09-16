@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Services\CrawlUrlValidator;
+use App\Services\ProjectUrlNormalizer;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
@@ -16,13 +16,13 @@ class Project extends Model
     protected static function booted(): void
     {
         static::creating(function (Project $project) {
-            $project->url = app(CrawlUrlValidator::class)->normalize($project->url) ?: $project->url;
+            $project->url = app(ProjectUrlNormalizer::class)->normalize($project->url);
             $project->domain = strtolower(parse_url($project->url, PHP_URL_HOST) ?: $project->domain);
             $project->slug = static::uniqueSlug($project->name);
         });
 
         static::updating(function (Project $project) {
-            $project->url = app(CrawlUrlValidator::class)->normalize($project->url) ?: $project->url;
+            $project->url = app(ProjectUrlNormalizer::class)->normalize($project->url);
             $project->domain = strtolower(parse_url($project->url, PHP_URL_HOST) ?: $project->domain);
         });
     }

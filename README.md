@@ -10,6 +10,7 @@ The application intentionally stays simple: Blade-rendered pages, Eloquent model
 
 - Breeze authentication with registration, login, logout, password reset, and email verification
 - Owner-scoped project management for tracked websites
+- Project URLs are stored as canonical site-root URLs with per-user duplicate prevention
 - Keyword tracking with current, previous, best, and changed positions
 - Historical keyword ranking records
 - Configurable external ranking provider through `RANKING_API_URL` and `RANKING_API_KEY`
@@ -153,6 +154,8 @@ Core entities:
 - `Crawl` has many `SeoIssue` records
 - `SeoIssue` belongs to both a `Project` and a `Crawl`
 
+Project URLs represent website roots, not arbitrary pages. Stored project URLs are canonicalized to lowercase scheme/host, default ports are removed, and the path is `/`. Query strings, fragments, credentials, and non-root paths are rejected. `http://example.com/` and `https://example.com/` remain distinct projects. Internationalized hostnames are not converted with a custom punycode layer.
+
 ```mermaid
 erDiagram
     User ||--o{ Project : owns
@@ -180,10 +183,12 @@ On Windows PowerShell, use:
 Copy-Item .env.example .env
 ```
 
-Create a MySQL database, then update the database values in `.env`.
+Create a MySQL database, then update the database values in `.env`. Composer does not create the database or run migrations automatically.
 
 ```bash
-php artisan migrate --seed
+php artisan migrate
+# optional local demo data
+php artisan db:seed
 npm run build
 ```
 

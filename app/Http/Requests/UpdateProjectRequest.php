@@ -3,8 +3,12 @@
 namespace App\Http\Requests;
 
 use App\Services\CrawlUrlValidator;
+use App\Services\ProjectUrlNormalizer;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+use InvalidArgumentException;
 
 class UpdateProjectRequest extends FormRequest
 {
@@ -14,6 +18,19 @@ class UpdateProjectRequest extends FormRequest
     public function authorize(): bool
     {
         return true;
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if (! $this->filled('url')) {
+            return;
+        }
+
+        try {
+            $this->merge(['url' => app(ProjectUrlNormalizer::class)->normalize((string) $this->input('url'))]);
+        } catch (InvalidArgumentException) {
+            //
+        }
     }
 
     /**
@@ -27,15 +44,33 @@ class UpdateProjectRequest extends FormRequest
             'name' => ['required', 'string', 'max:120'],
             'url' => [
                 'required',
-                'url',
+                'string',
                 'max:255',
+                Rule::unique('projects', 'url')
+                    ->where(fn (Builder $query) => $query->where('user_id', $this->user()->id))
+                    ->ignore($this->route('project')),
                 function (string $attribute, mixed $value, \Closure $fail): void {
-                    if (! app(CrawlUrlValidator::class)->isSafe((string) $value)) {
+                    try {
+                        $url = app(ProjectUrlNormalizer::class)->normalize((string) $value);
+                    } catch (InvalidArgumentException $e) {
+                        $fail($e->getMessage());
+
+                        return;
+                    }
+
+                    if (! app(CrawlUrlValidator::class)->isSafe($url)) {
                         $fail('Enter a public HTTP or HTTPS website URL.');
                     }
                 },
             ],
             'description' => ['nullable', 'string', 'max:1000'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'url.unique' => 'This website is already being monitored.',
         ];
     }
 }

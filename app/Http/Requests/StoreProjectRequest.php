@@ -3,9 +3,13 @@
 namespace App\Http\Requests;
 
 use App\Services\CrawlUrlValidator;
+use App\Services\ProjectUrlNormalizer;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
+use InvalidArgumentException;
 
 class StoreProjectRequest extends FormRequest
 {
@@ -15,6 +19,19 @@ class StoreProjectRequest extends FormRequest
     public function authorize(): bool
     {
         return true;
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if (! $this->filled('url')) {
+            return;
+        }
+
+        try {
+            $this->merge(['url' => app(ProjectUrlNormalizer::class)->normalize((string) $this->input('url'))]);
+        } catch (InvalidArgumentException) {
+            //
+        }
     }
 
     /**
@@ -28,10 +45,19 @@ class StoreProjectRequest extends FormRequest
             'name' => ['required', 'string', 'max:120'],
             'url' => [
                 'required',
-                'url',
+                'string',
                 'max:255',
+                Rule::unique('projects', 'url')->where(fn (Builder $query) => $query->where('user_id', $this->user()->id)),
                 function (string $attribute, mixed $value, \Closure $fail): void {
-                    if (! app(CrawlUrlValidator::class)->isSafe((string) $value)) {
+                    try {
+                        $url = app(ProjectUrlNormalizer::class)->normalize((string) $value);
+                    } catch (InvalidArgumentException $e) {
+                        $fail($e->getMessage());
+
+                        return;
+                    }
+
+                    if (! app(CrawlUrlValidator::class)->isSafe($url)) {
                         $fail('Enter a public HTTP or HTTPS website URL.');
                     }
                 },
@@ -52,6 +78,13 @@ class StoreProjectRequest extends FormRequest
                     $validator->errors()->add('plan', "Your {$plan} plan supports {$limit} {$website}. Upgrade to Pro to monitor additional websites.");
                 }
             },
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'url.unique' => 'This website is already being monitored.',
         ];
     }
 }

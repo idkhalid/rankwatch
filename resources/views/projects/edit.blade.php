@@ -5,7 +5,7 @@
             @csrf
             @method('PATCH')
             <div><label class="text-sm font-medium">Name</label><x-input name="name" value="{{ old('name', $project->name) }}" required /></div>
-            <div><label class="text-sm font-medium">Website URL</label><x-input name="url" type="url" value="{{ old('url', $project->url) }}" required /></div>
+            <div><label class="text-sm font-medium">Website URL</label><x-input name="url" type="url" value="{{ old('url', $project->url) }}" placeholder="https://example.com" required /><p class="mt-1 text-sm text-slate-500">Use the website root. Paths, query strings, fragments, and credentials are not supported.</p></div>
             <div><label class="text-sm font-medium">Description</label><textarea name="description" class="block w-full rounded-md border-slate-300">{{ old('description', $project->description) }}</textarea></div>
             <x-input-error :messages="$errors->all()" />
             <div class="flex gap-3"><x-button>Save changes</x-button></div>
