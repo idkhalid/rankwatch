@@ -104,6 +104,63 @@ it('blocks users from viewing other projects', function () {
         ->assertForbidden();
 });
 
+it('blocks users from editing updating or deleting other users projects', function () {
+    useCrawlerDns(['changed.test' => ['93.184.216.34']]);
+
+    $owner = User::factory()->create();
+    $intruder = User::factory()->create();
+    $project = $owner->projects()->create(['name' => 'Owner Site', 'url' => 'https://owner.test']);
+
+    $this->actingAs($intruder)
+        ->get(route('projects.edit', $project))
+        ->assertForbidden();
+
+    $this->actingAs($intruder)
+        ->patch(route('projects.update', $project), [
+            'name' => 'Changed',
+            'url' => 'https://changed.test/',
+        ])
+        ->assertForbidden();
+
+    $this->actingAs($intruder)
+        ->delete(route('projects.destroy', $project))
+        ->assertForbidden();
+
+    expect($project->refresh()->name)->toBe('Owner Site')
+        ->and($project->url)->toBe('https://owner.test/')
+        ->and(Project::query()->whereKey($project->id)->exists())->toBeTrue();
+});
+
+it('rejects mismatched project and keyword route pairs', function (string $route, string $method) {
+    $firstUser = User::factory()->create();
+    $firstProject = $firstUser->projects()->create(['name' => 'First', 'url' => 'https://first.test']);
+    $firstKeyword = $firstProject->keywords()->create(['keyword' => 'first keyword', 'country' => 'Indonesia', 'device' => 'desktop']);
+
+    $secondUser = User::factory()->create();
+    $secondProject = $secondUser->projects()->create(['name' => 'Second', 'url' => 'https://second.test']);
+    $secondKeyword = $secondProject->keywords()->create(['keyword' => 'second keyword', 'country' => 'Indonesia', 'device' => 'desktop']);
+
+    $payload = ['keyword' => 'changed keyword', 'country' => 'Indonesia', 'device' => 'desktop'];
+
+    foreach ([[$firstUser, $firstProject, $secondKeyword], [$secondUser, $secondProject, $firstKeyword]] as [$user, $project, $keyword]) {
+        $response = in_array($method, ['get', 'delete'], true)
+            ? $this->actingAs($user)->{$method}(route($route, [$project, $keyword]))
+            : $this->actingAs($user)->{$method}(route($route, [$project, $keyword]), $payload);
+
+        $response->assertNotFound();
+    }
+
+    expect($firstKeyword->refresh()->keyword)->toBe('first keyword')
+        ->and($secondKeyword->refresh()->keyword)->toBe('second keyword')
+        ->and(Keyword::query()->whereKey($firstKeyword->id)->exists())->toBeTrue()
+        ->and(Keyword::query()->whereKey($secondKeyword->id)->exists())->toBeTrue();
+})->with([
+    'show' => ['keywords.show', 'get'],
+    'edit' => ['keywords.edit', 'get'],
+    'update' => ['keywords.update', 'patch'],
+    'delete' => ['keywords.destroy', 'delete'],
+]);
+
 it('creates keywords and stores ranking history', function () {
     $user = User::factory()->create();
     $project = $user->projects()->create(['name' => 'Acme Coffee', 'url' => 'https://acme.test']);
@@ -814,6 +871,42 @@ it('allows future crawl dispatches after the queued crawl marker expires', funct
     Queue::assertPushed(CrawlProjectJob::class, 2);
 });
 
+it('clears the crawl queued marker if dispatch fails', function () {
+    $project = User::factory()->create()
+        ->projects()
+        ->create(['name' => 'Acme Coffee', 'url' => 'https://acme.test']);
+    $dispatcher = app(Dispatcher::class);
+    $failingDispatcher = Mockery::mock(Dispatcher::class);
+    $failingDispatcher->shouldReceive('dispatch')->once()->andThrow(new RuntimeException('dispatch failed'));
+    app()->instance(Dispatcher::class, $failingDispatcher);
+
+    expect(fn () => CrawlProjectJob::dispatchIfAvailable($project))->toThrow(RuntimeException::class);
+    expect(Cache::has(CrawlProjectJob::queuedKey($project)))->toBeFalse();
+
+    app()->instance(Dispatcher::class, $dispatcher);
+    Queue::fake();
+
+    expect(CrawlProjectJob::dispatchIfAvailable($project))->toBeTrue();
+    Queue::assertPushed(CrawlProjectJob::class, 1);
+});
+
+it('clears the crawl queued marker when the job fails', function () {
+    $project = User::factory()->create()
+        ->projects()
+        ->create(['name' => 'Acme Coffee', 'url' => 'https://acme.test']);
+    Cache::put(CrawlProjectJob::queuedKey($project), true, 60);
+    $crawler = Mockery::mock(SeoCrawler::class);
+    $crawler->shouldReceive('crawl')->once()->andThrow(new RuntimeException('crawler failed'));
+
+    expect(fn () => (new CrawlProjectJob($project))->handle($crawler))->toThrow(RuntimeException::class);
+    expect(Cache::has(CrawlProjectJob::queuedKey($project)))->toBeFalse();
+
+    Queue::fake();
+
+    expect(CrawlProjectJob::dispatchIfAvailable($project))->toBeTrue();
+    Queue::assertPushed(CrawlProjectJob::class, 1);
+});
+
 it('uses the same crawl availability guard for scheduled and manual dispatches', function () {
     Queue::fake();
 
@@ -1019,6 +1112,16 @@ it('rejects unsupported crawl URL schemes', function (string $url) {
     'ftp' => ['ftp://example.com/file'],
     'gopher' => ['gopher://example.com'],
     'data' => ['data:text/html;base64,PGgxPkE8L2gxPg=='],
+]);
+
+it('rejects obvious local or credentialed crawl URL hosts', function (string $url) {
+    $validator = new CrawlUrlValidator(fn () => ['93.184.216.34']);
+
+    expect($validator->isSafe($url))->toBeFalse();
+})->with([
+    'localhost' => ['http://localhost/'],
+    'single label' => ['http://admin/'],
+    'credentials' => ['https://user:pass@example.com/'],
 ]);
 
 it('rejects unsafe direct IP crawl targets', function (string $url) {
