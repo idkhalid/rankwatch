@@ -83,3 +83,22 @@ test('correct password must be provided to delete account', function () {
 
     $this->assertNotNull($user->fresh());
 });
+
+test('email notification preference can be updated from profile', function () {
+    $user = User::factory()->create(['email_notifications' => true]);
+
+    $this->actingAs($user)->patch('/profile', [
+        'name' => $user->name,
+        'email' => $user->email,
+    ])->assertSessionHasNoErrors();
+
+    $this->assertFalse($user->refresh()->email_notifications);
+
+    $this->actingAs($user)->patch('/profile', [
+        'name' => $user->name,
+        'email' => $user->email,
+        'email_notifications' => '1',
+    ])->assertSessionHasNoErrors();
+
+    $this->assertTrue($user->refresh()->email_notifications);
+});

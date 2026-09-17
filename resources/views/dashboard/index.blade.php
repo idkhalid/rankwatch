@@ -72,7 +72,7 @@
     </section>
 
     <section class="mt-6 grid gap-6 xl:grid-cols-[1fr_360px]">
-        <div class="space-y-6">
+        <div class="min-w-0 space-y-6">
             <x-card>
                 <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
@@ -121,7 +121,7 @@
             </x-card>
         </div>
 
-        <aside class="space-y-6">
+        <aside class="min-w-0 space-y-6">
             <x-card>
                 <div class="flex items-center justify-between gap-3">
                     <div>

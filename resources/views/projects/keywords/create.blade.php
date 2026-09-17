@@ -34,7 +34,11 @@
                 </div>
                 <x-input-error :messages="$errors->all()" />
                 <div class="flex flex-wrap items-center gap-3">
-                    <x-button type="submit" @disabled($atLimit)>{{ $atLimit ? 'Limit reached' : 'Add Keyword' }}</x-button>
+                    @if ($atLimit)
+                        <button type="button" disabled class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-500">Limit reached</button>
+                    @else
+                        <x-button type="submit">Add Keyword</x-button>
+                    @endif
                     <x-button :href="route('keywords.index', $project)" variant="secondary">Cancel</x-button>
                 </div>
             </form>

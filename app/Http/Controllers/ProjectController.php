@@ -11,18 +11,34 @@ use Illuminate\Support\Facades\Auth;
 
 class ProjectController extends Controller
 {
-    public function index()
+    public function index(SeoScoreCalculator $calculator)
     {
-        $projects = Auth::user()->projects()->withCount(['keywords', 'seoIssues'])->latest()->paginate(10);
+        $user = Auth::user();
+        $projectLimit = $user->planLimit('projects');
+        $projectCount = $user->projects()->count();
+        $projects = $user->projects()
+            ->withCount('keywords')
+            ->with(['latestCompletedCrawl.issues' => fn ($query) => $query->open()])
+            ->latest()
+            ->paginate(10);
 
-        return view('projects.index', compact('projects'));
+        $projects->getCollection()->each(function (Project $project) use ($calculator): void {
+            $currentIssues = $project->latestCompletedCrawl?->issues ?? collect();
+            $project->setAttribute('current_issue_count', $currentIssues->count());
+            $project->setAttribute('seo_score', $calculator->calculate($currentIssues));
+        });
+
+        return view('projects.index', compact('projects', 'projectCount', 'projectLimit'));
     }
 
     public function create()
     {
         $this->authorize('create', Project::class);
 
-        return view('projects.create');
+        $projectCount = Auth::user()->projects()->count();
+        $projectLimit = Auth::user()->planLimit('projects');
+
+        return view('projects.create', compact('projectCount', 'projectLimit'));
     }
 
     public function store(StoreProjectRequest $request)
@@ -36,16 +52,20 @@ class ProjectController extends Controller
     {
         $this->authorize('view', $project);
 
-        $project->load(['latestCompletedCrawl.issues' => fn ($query) => $query->open()->latest()->limit(6)]);
+        $latestCrawl = $project->latestCompletedCrawl()->first();
+        $issueCounts = $latestCrawl
+            ? $latestCrawl->issues()->open()->selectRaw('severity, count(*) as aggregate')->groupBy('severity')->pluck('aggregate', 'severity')
+            : collect();
+        $issues = $latestCrawl ? $latestCrawl->issues()->open()->latest()->limit(6)->get() : collect();
         $keywords = $project->keywords()->withRankingSummary()->latest()->get();
-
-        $currentIssues = $project->latestCompletedCrawl?->issues ?? collect();
 
         return view('projects.show', [
             'project' => $project,
             'keywords' => $keywords,
-            'issues' => $currentIssues,
-            'score' => $calculator->calculate($currentIssues),
+            'issues' => $issues,
+            'issueCount' => $issueCounts->sum(),
+            'latestCrawl' => $latestCrawl,
+            'score' => $calculator->calculateFromSeverityCounts($issueCounts),
         ]);
     }
 

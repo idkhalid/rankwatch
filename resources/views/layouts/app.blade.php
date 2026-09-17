@@ -91,7 +91,13 @@
 
         <main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
             @if (session('status'))
-                <div class="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">{{ session('status') }}</div>
+                @php($statusMessage = match (session('status')) {
+                    'profile-updated' => 'Profile updated.',
+                    'password-updated' => 'Password updated.',
+                    'verification-link-sent' => 'Verification link sent.',
+                    default => session('status'),
+                })
+                <div class="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">{{ $statusMessage }}</div>
             @endif
             {{ $slot }}
         </main>

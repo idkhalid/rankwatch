@@ -1326,3 +1326,186 @@ it('deduplicates normalized internal links before checking them', function () {
 
     Http::assertSentCount(2);
 });
+
+it('filters keyword index server side and preserves query strings in pagination', function () {
+    $user = User::factory()->pro()->create();
+    $project = $user->projects()->create(['name' => 'Filter Site', 'url' => 'https://filter.test']);
+
+    foreach (range(1, 25) as $i) {
+        $project->keywords()->create([
+            'keyword' => "coffee beans {$i}",
+            'country' => 'Indonesia',
+            'device' => 'mobile',
+        ]);
+    }
+
+    $project->keywords()->create(['keyword' => 'tea leaves', 'country' => 'Singapore', 'device' => 'desktop']);
+
+    $this->actingAs($user)
+        ->get(route('keywords.index', [$project, 'search' => 'coffee', 'country' => 'Indonesia', 'device' => 'mobile']))
+        ->assertOk()
+        ->assertSee('coffee beans 25')
+        ->assertDontSee('tea leaves')
+        ->assertSee('search=coffee', false)
+        ->assertSee('country=Indonesia', false)
+        ->assertSee('device=mobile', false);
+});
+
+it('shows keyword plan usage and limit state without changing backend enforcement', function () {
+    $user = User::factory()->create();
+    $project = $user->projects()->create(['name' => 'Limit Site', 'url' => 'https://limit.test']);
+
+    foreach (range(1, 10) as $i) {
+        $project->keywords()->create(['keyword' => "term {$i}", 'country' => 'Indonesia', 'device' => 'desktop']);
+    }
+
+    $this->actingAs($user)
+        ->get(route('keywords.index', $project))
+        ->assertOk()
+        ->assertSee('10 / 10')
+        ->assertSee('Limit reached');
+
+    $this->actingAs($user)
+        ->post(route('keywords.store', $project), ['keyword' => 'overflow', 'country' => 'Indonesia', 'device' => 'desktop'])
+        ->assertSessionHasErrors('plan');
+});
+
+it('renders issue empty states for no crawl and clean latest completed crawl', function () {
+    $user = User::factory()->create();
+    $project = $user->projects()->create(['name' => 'Issue Empty Site', 'url' => 'https://issues-empty.test']);
+
+    $this->actingAs($user)
+        ->get(route('projects.issues.index', $project))
+        ->assertOk()
+        ->assertSee('No completed crawl yet.');
+
+    completedCrawl($project, []);
+
+    $this->actingAs($user)
+        ->get(route('projects.issues.index', $project))
+        ->assertOk()
+        ->assertSee('No current SEO issues detected in the latest completed crawl.');
+});
+
+it('renders report current ranking states and excludes failed or running crawl issues', function () {
+    $user = User::factory()->create();
+    $project = $user->projects()->create(['name' => 'Report Current Site', 'url' => 'https://report-current.test']);
+    completedCrawl($project, [[
+        'type' => 'missing_title',
+        'severity' => 'high',
+        'message' => 'Current missing title.',
+    ]], now()->subHour());
+
+    foreach (['failed', 'running'] as $status) {
+        $crawl = $project->crawls()->create(['status' => $status, 'started_at' => now(), 'finished_at' => $status === 'failed' ? now() : null]);
+        $crawl->issues()->create([
+            'project_id' => $project->id,
+            'type' => "{$status}_issue",
+            'severity' => 'critical',
+            'page_url' => $project->url,
+            'message' => "{$status} crawl issue.",
+        ]);
+    }
+
+    $found = $project->keywords()->create(['keyword' => 'found report keyword', 'country' => 'Indonesia', 'device' => 'desktop']);
+    $notFound = $project->keywords()->create(['keyword' => 'missing report keyword', 'country' => 'Indonesia', 'device' => 'mobile']);
+    $project->keywords()->create(['keyword' => 'fresh report keyword', 'country' => 'Singapore', 'device' => 'desktop']);
+
+    $found->rankings()->create(['position' => 6, 'status' => KeywordRanking::STATUS_FOUND, 'checked_at' => now()]);
+    $notFound->rankings()->create(['position' => null, 'status' => KeywordRanking::STATUS_NOT_FOUND, 'checked_at' => now()]);
+
+    $this->actingAs($user)
+        ->get(route('projects.report', $project))
+        ->assertOk()
+        ->assertSee('Report Current Site')
+        ->assertSee('Current missing title.')
+        ->assertDontSee('failed crawl issue.')
+        ->assertDontSee('running crawl issue.')
+        ->assertSee('found report keyword')
+        ->assertSee('#6')
+        ->assertSee('missing report keyword')
+        ->assertSee('Not found')
+        ->assertSee('fresh report keyword');
+});
+
+it('renders owned projects with current seo state and plan capacity', function () {
+    $owner = User::factory()->create();
+    $project = $owner->projects()->create(['name' => 'Owned Current Site', 'url' => 'https://owned-current.test']);
+    completedCrawl($project, [[
+        'type' => 'missing_title',
+        'severity' => 'high',
+        'message' => 'Missing title.',
+    ]]);
+    $project->keywords()->create(['keyword' => 'owned keyword', 'country' => 'Indonesia', 'device' => 'desktop']);
+
+    $other = User::factory()->create();
+    $other->projects()->create(['name' => 'Other Private Site', 'url' => 'https://other-private.test']);
+
+    $this->actingAs($owner)
+        ->get(route('projects.index'))
+        ->assertOk()
+        ->assertSee('Owned Current Site')
+        ->assertSee('1 / 1 websites')
+        ->assertSee('95 / 100')
+        ->assertSee('owned-current.test')
+        ->assertDontSee('Other Private Site');
+});
+
+it('shows project create limit state while backend limit remains authoritative', function () {
+    useCrawlerDns(['overflow.test' => ['93.184.216.34']]);
+
+    $user = User::factory()->create();
+    $user->projects()->create(['name' => 'Existing Site', 'url' => 'https://existing.test']);
+
+    $this->actingAs($user)
+        ->get(route('projects.create'))
+        ->assertOk()
+        ->assertSee('1 / 1 websites')
+        ->assertSee('Limit reached');
+
+    $this->actingAs($user)
+        ->post(route('projects.store'), ['name' => 'Overflow', 'url' => 'https://overflow.test'])
+        ->assertSessionHasErrors('plan');
+});
+
+it('keeps project overview on latest completed crawl when later failed or running crawls exist', function () {
+    $user = User::factory()->create();
+    $project = $user->projects()->create(['name' => 'Project Current Site', 'url' => 'https://project-current.test']);
+    completedCrawl($project, [[
+        'type' => 'missing_title',
+        'severity' => 'high',
+        'message' => 'Current completed issue.',
+    ]], now()->subHour());
+
+    foreach (['failed', 'running'] as $status) {
+        $crawl = $project->crawls()->create(['status' => $status, 'started_at' => now(), 'finished_at' => $status === 'failed' ? now() : null]);
+        $crawl->issues()->create([
+            'project_id' => $project->id,
+            'type' => "{$status}_issue",
+            'severity' => 'critical',
+            'page_url' => $project->url,
+            'message' => "{$status} crawl issue.",
+        ]);
+    }
+
+    $this->actingAs($user)
+        ->get(route('projects.show', $project))
+        ->assertOk()
+        ->assertSee('95 / 100')
+        ->assertSee('Current completed issue.')
+        ->assertDontSee('failed crawl issue.')
+        ->assertDontSee('running crawl issue.');
+});
+
+it('selects the higher id when completed crawls share the same finished time', function () {
+    $project = User::factory()->create()
+        ->projects()
+        ->create(['name' => 'Tie Break Site', 'url' => 'https://tie-break.test']);
+    $finishedAt = now()->startOfSecond();
+
+    $olderId = completedCrawl($project, [['type' => 'missing_title', 'severity' => 'high', 'message' => 'Old same-time issue.']], $finishedAt);
+    $higherId = completedCrawl($project, [['type' => 'missing_h1', 'severity' => 'medium', 'message' => 'New same-time issue.']], $finishedAt);
+
+    expect($project->latestCompletedCrawl()->first()->is($higherId))->toBeTrue()
+        ->and($project->latestCompletedCrawl()->first()->is($olderId))->toBeFalse();
+});

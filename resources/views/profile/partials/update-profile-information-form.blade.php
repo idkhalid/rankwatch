@@ -1,19 +1,14 @@
 <section>
     <header>
-        <h2 class="text-lg font-medium text-gray-900">
-            {{ __('Profile Information') }}
-        </h2>
-
-        <p class="mt-1 text-sm text-gray-600">
-            {{ __("Update your account's profile information and email address.") }}
-        </p>
+        <h2 class="text-lg font-semibold text-slate-950">Profile information</h2>
+        <p class="mt-1 text-sm text-slate-500">Update your account name, email address, and global email notification preference.</p>
     </header>
 
     <form id="send-verification" method="post" action="{{ route('verification.send') }}">
         @csrf
     </form>
 
-    <form method="post" action="{{ route('profile.update') }}" class="mt-6 space-y-6">
+    <form method="post" action="{{ route('profile.update') }}" class="mt-6 space-y-5">
         @csrf
         @method('patch')
 
@@ -29,40 +24,32 @@
             <x-input-error class="mt-2" :messages="$errors->get('email')" />
 
             @if ($user instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && ! $user->hasVerifiedEmail())
-                <div>
-                    <p class="text-sm mt-2 text-gray-800">
-                        {{ __('Your email address is unverified.') }}
-
-                        <button form="send-verification" class="underline text-sm text-gray-600 hover:text-gray-900 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                            {{ __('Click here to re-send the verification email.') }}
-                        </button>
-                    </p>
+                <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    {{ __('Your email address is unverified.') }}
+                    <button form="send-verification" class="font-semibold underline hover:text-amber-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600">
+                        {{ __('Re-send verification email.') }}
+                    </button>
 
                     @if (session('status') === 'verification-link-sent')
-                        <p class="mt-2 font-medium text-sm text-green-600">
-                            {{ __('A new verification link has been sent to your email address.') }}
-                        </p>
+                        <p class="mt-2 font-medium text-emerald-700">{{ __('A new verification link has been sent to your email address.') }}</p>
                     @endif
                 </div>
             @endif
         </div>
 
-        <label class="flex items-center gap-3">
-            <input type="checkbox" name="email_notifications" value="1" class="rounded border-gray-300 text-gray-900 shadow-sm focus:ring-gray-500" @checked(old('email_notifications', $user->email_notifications))>
-            <span class="text-sm text-gray-700">Email me about crawl completions, critical issues, and ranking drops.</span>
+        <label for="email_notifications" class="flex items-start gap-3 rounded-lg border border-slate-200 p-4">
+            <input id="email_notifications" type="checkbox" name="email_notifications" value="1" class="mt-1 rounded border-slate-300 text-slate-950 shadow-sm focus:ring-slate-500" @checked(old('email_notifications', $user->email_notifications))>
+            <span>
+                <span class="block text-sm font-medium text-slate-900">Email notifications</span>
+                <span class="mt-1 block text-sm text-slate-500">Receive enabled crawl, critical issue, and ranking drop emails when your plan allows them.</span>
+            </span>
         </label>
 
-        <div class="flex items-center gap-4">
-            <x-primary-button>{{ __('Save') }}</x-primary-button>
+        <div class="flex flex-wrap items-center gap-4">
+            <x-button type="submit">Save Profile</x-button>
 
             @if (session('status') === 'profile-updated')
-                <p
-                    x-data="{ show: true }"
-                    x-show="show"
-                    x-transition
-                    x-init="setTimeout(() => show = false, 2000)"
-                    class="text-sm text-gray-600"
-                >{{ __('Saved.') }}</p>
+                <p x-data="{ show: true }" x-show="show" x-transition x-init="setTimeout(() => show = false, 2000)" class="text-sm font-medium text-emerald-700">Saved.</p>
             @endif
         </div>
     </form>
