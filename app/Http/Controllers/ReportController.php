@@ -15,11 +15,13 @@ class ReportController extends Controller
         $keywords = $project->keywords()->withRankingSummary()->latest()->get();
 
         $currentIssues = $project->latestCompletedCrawl?->issues ?? collect();
+        $severityCounts = $currentIssues->countBy('severity');
 
         return view('projects.reports.show', [
             'project' => $project,
             'keywords' => $keywords,
             'issues' => $currentIssues,
+            'severityCounts' => $severityCounts,
             'score' => $calculator->calculate($currentIssues),
         ]);
     }

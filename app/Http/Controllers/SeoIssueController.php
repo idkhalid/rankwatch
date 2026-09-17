@@ -14,13 +14,18 @@ class SeoIssueController extends Controller
 
         $severity = $request->string('severity')->toString();
         $crawl = $project->latestCompletedCrawl()->first();
-        $issues = ($crawl ? $crawl->issues() : SeoIssue::query()->whereRaw('1 = 0'))
+        $issueQuery = $crawl ? $crawl->issues()->open() : SeoIssue::query()->whereRaw('1 = 0');
+        $severityCounts = $crawl
+            ? (clone $issueQuery)->selectRaw('severity, count(*) as aggregate')->groupBy('severity')->pluck('aggregate', 'severity')
+            : collect();
+
+        $issues = $issueQuery
             ->when(in_array($severity, SeoIssue::SEVERITIES, true), fn ($query) => $query->where('severity', $severity))
             ->latest()
             ->paginate(20)
             ->withQueryString();
 
-        return view('projects.issues.index', compact('project', 'issues', 'severity'));
+        return view('projects.issues.index', compact('project', 'issues', 'severity', 'crawl', 'severityCounts'));
     }
 
     public function update(Project $project, SeoIssue $issue)

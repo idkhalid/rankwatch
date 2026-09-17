@@ -60,8 +60,7 @@ class Project extends Model
     public function latestCompletedCrawl()
     {
         return $this->hasOne(Crawl::class)
-            ->completed()
-            ->ofMany(['finished_at' => 'max', 'id' => 'max']);
+            ->ofMany(['finished_at' => 'max', 'id' => 'max'], fn ($query) => $query->completed());
     }
 
     private static function uniqueSlug(string $name): string
